@@ -23,7 +23,7 @@ function formatBytes(bytes: number): string {
 function DriveCard({ drive }: { drive: DriveInfo }) {
   const getIcon = () => {
     if (drive.is_removable) return <Usb className="w-8 h-8" />;
-    if (drive.mount_point === "C:\\") return <Database className="w-8 h-8" />;
+    if (drive.mount_point === "/") return <Database className="w-8 h-8" />;
     return <HardDrive className="w-8 h-8" />;
   };
 
