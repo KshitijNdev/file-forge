@@ -1,5 +1,7 @@
 use serde::Serialize;
 use sysinfo::Disks;
+use std::fs;
+use std::path::Path;
 
 #[derive(Serialize)]
 struct DriveInfo {
@@ -43,11 +45,46 @@ fn get_drives() -> Vec<DriveInfo> {
         .collect()
 }
 
+#[derive(Serialize)]
+struct FileEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: u64,
+}
+
+#[tauri::command]
+fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+    let dir_path = Path::new(&path);
+    
+    if !dir_path.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    
+    let entries = fs::read_dir(dir_path)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let metadata = entry.metadata().ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            
+            Some(FileEntry {
+                name,
+                path: entry.path().to_string_lossy().to_string(),
+                is_dir: metadata.is_dir(),
+                size: metadata.len(),
+            })
+        })
+        .collect();
+    
+    Ok(entries)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_drives])
+        .invoke_handler(tauri::generate_handler![get_drives, list_directory])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
