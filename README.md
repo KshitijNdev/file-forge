@@ -1,6 +1,6 @@
-# Tauri + React + Typescript
+Tech Stack:
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+# Tauri + React + Typescript
 
 ## Recommended IDE Setup
 
