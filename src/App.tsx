@@ -168,34 +168,19 @@ function DriveCard({ drive, onClick }: { drive: DriveInfo; onClick: () => void }
 function FileEntryRow({
   entry,
   onClick,
-  selected,
-  onSelect,
 }: {
   entry: FileEntry;
   onClick: () => void;
-  selected?: boolean;
-  onSelect?: () => void;
 }) {
   return (
     <div
       onClick={onClick}
       className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-        selected ? "bg-blue-900 border border-blue-500" : ""
-      } ${
         entry.is_dir
           ? "hover:bg-gray-700 cursor-pointer"
           : "hover:bg-gray-800 cursor-pointer"
       }`}
     >
-      {onSelect && (
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onSelect}
-          onClick={(e) => e.stopPropagation()}
-          className="w-4 h-4 accent-blue-500"
-        />
-      )}
       {entry.is_dir ? (
         <Folder className="w-5 h-5 text-yellow-400" />
       ) : (
@@ -360,6 +345,7 @@ function MoveFileModal({
                   placeholder="Folder name..."
                   className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                   autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && createFolder()}
                 />
                 <button
                   onClick={createFolder}
@@ -421,6 +407,217 @@ function MoveFileModal({
   );
 }
 
+function BulkMoveModal({
+  files,
+  onClose,
+  onMove,
+}: {
+  files: FileEntry[];
+  onClose: () => void;
+  onMove: (destination: string) => void;
+}) {
+  const [drives, setDrives] = useState<DriveInfo[]>([]);
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadDrives();
+  }, []);
+
+  async function loadDrives() {
+    const result = await invoke<DriveInfo[]>("get_drives");
+    setDrives(result);
+  }
+
+  async function navigateTo(path: string) {
+    setLoading(true);
+    try {
+      const result = await invoke<FileEntry[]>("list_directory", { path });
+      const folders = result
+        .filter((e) => e.is_dir)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setEntries(folders);
+      setCurrentPath(path);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  }
+
+  async function createFolder() {
+    if (!newFolderName || !currentPath) return;
+    const folderPath = `${currentPath}${newFolderName}`;
+    try {
+      await invoke("create_folder", { path: folderPath });
+      setNewFolderName("");
+      setShowNewFolder(false);
+      navigateTo(currentPath);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-xl w-[500px] max-h-[600px] flex flex-col border border-gray-700 shadow-2xl">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FolderOpen className="w-6 h-6 text-blue-400" />
+              <div>
+                <h2 className="text-lg font-semibold text-white">Move {files.length} Files</h2>
+                <p className="text-sm text-gray-400">
+                  Total size: {formatBytes(totalSize)}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+            >
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+          </div>
+          
+          {/* File preview */}
+          <div className="mt-3 max-h-20 overflow-auto text-sm text-gray-400">
+            {files.slice(0, 5).map((f, i) => (
+              <div key={i} className="truncate">{f.name}</div>
+            ))}
+            {files.length > 5 && (
+              <div className="text-gray-500">...and {files.length - 5} more</div>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="p-4 border-b border-gray-700">
+          <p className="text-sm text-gray-400 mb-2">Select destination:</p>
+          {currentPath && (
+            <button
+              onClick={() => {
+                setCurrentPath(null);
+                setEntries([]);
+              }}
+              className="text-sm text-blue-400 hover:underline mb-2"
+            >
+              ← Back to drives
+            </button>
+          )}
+          <div className="bg-gray-900 rounded-lg p-2 text-sm font-mono text-gray-300">
+            {currentPath || "Select a drive..."}
+          </div>
+        </div>
+
+        {/* Folder list */}
+        <div className="flex-1 overflow-auto p-4">
+          {currentPath === null ? (
+            <div className="grid gap-2">
+              {drives.map((drive, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigateTo(drive.mount_point)}
+                  className="flex items-center gap-3 p-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-all"
+                >
+                  <HardDrive className="w-5 h-5 text-blue-400" />
+                  <span className="text-white">
+                    {drive.name || "Local Disk"} ({drive.mount_point.replace("\\", "")})
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : loading ? (
+            <div className="text-gray-400">Loading...</div>
+          ) : (
+            <div className="grid gap-1">
+              {entries.map((entry, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigateTo(entry.path)}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-700 rounded-lg text-left transition-all"
+                >
+                  <Folder className="w-5 h-5 text-yellow-400" />
+                  <span className="text-white truncate">{entry.name}</span>
+                </button>
+              ))}
+              {entries.length === 0 && (
+                <div className="text-gray-500 text-sm">No subfolders</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* New folder */}
+        {currentPath && (
+          <div className="p-4 border-t border-gray-700">
+            {showNewFolder ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="Folder name..."
+                  className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && createFolder()}
+                />
+                <button
+                  onClick={createFolder}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => setShowNewFolder(false)}
+                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowNewFolder(true)}
+                className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Create new folder
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="p-4 border-t border-gray-700 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => currentPath && onMove(currentPath)}
+            disabled={!currentPath}
+            className={`px-4 py-2 rounded-lg text-white transition-all flex items-center gap-2 ${
+              currentPath
+                ? "bg-blue-600 hover:bg-blue-500"
+                : "bg-gray-600 cursor-not-allowed"
+            }`}
+          >
+            <Check className="w-4 h-4" />
+            Move Here
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
@@ -432,7 +629,16 @@ function App() {
   const [downloadsPath, setDownloadsPath] = useState<string>("");
   const [downloadFiles, setDownloadFiles] = useState<FileEntry[]>([]);
   const [showDownloads, setShowDownloads] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<FileEntry | NewFileEvent | null>(null);
+  
+  // Single file selection (for double-click / single move modal)
+  const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
+  
+  // Multi-select state
+  const [selectedFiles, setSelectedFiles] = useState<FileEntry[]>([]);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
+  
+  // New download popup
   const [newDownload, setNewDownload] = useState<NewFileEvent | null>(null);
 
   useEffect(() => {
@@ -443,7 +649,6 @@ function App() {
     const unlisten = listen<NewFileEvent>("new-download", (event) => {
       console.log("New download detected:", event.payload);
       setNewDownload(event.payload);
-      // Refresh downloads list
       loadDownloadFiles();
     });
     
@@ -524,62 +729,216 @@ function App() {
     }
   }
 
+  // Single file move (from double-click modal)
   async function handleMoveFile(destination: string) {
-  if (!selectedFile) return;
-  
-  const fileName = selectedFile.name;
-  const sourcePath = selectedFile.path;
-  
-  // Ensure destination ends with backslash
-  const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
-  const destPath = `${destFolder}${fileName}`;
-  
-  console.log("Moving:", sourcePath, "→", destPath);
-  
-  try {
-    await invoke("move_file", { source: sourcePath, destination: destPath });
-    console.log("Move successful!");
-    setSelectedFile(null);
-    loadDownloadFiles();
-  } catch (err) {
-    console.error("Failed to move file:", err);
-    alert("Failed to move file: " + err);
+    if (!selectedFile) return;
+    
+    const fileName = selectedFile.name;
+    const sourcePath = selectedFile.path;
+    const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
+    const destPath = `${destFolder}${fileName}`;
+    
+    console.log("Moving:", sourcePath, "→", destPath);
+    
+    try {
+      await invoke("move_file", { source: sourcePath, destination: destPath });
+      console.log("Move successful!");
+      setSelectedFile(null);
+      loadDownloadFiles();
+    } catch (err) {
+      console.error("Failed to move file:", err);
+      alert("Failed to move file: " + err);
+    }
   }
-}
 
+  // New download move
   async function handleMoveNewDownload(destination: string) {
-  if (!newDownload) return;
-  
-  const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
-  const destPath = `${destFolder}${newDownload.name}`;
-  
-  console.log("Moving new download:", newDownload.path, "→", destPath);
-  
-  try {
-    await invoke("move_file", { source: newDownload.path, destination: destPath });
-    console.log("Move successful!");
-    setNewDownload(null);
-    loadDownloadFiles();
-  } catch (err) {
-    console.error("Failed to move file:", err);
-    alert("Failed to move file: " + err);
+    if (!newDownload) return;
+    
+    const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
+    const destPath = `${destFolder}${newDownload.name}`;
+    
+    console.log("Moving new download:", newDownload.path, "→", destPath);
+    
+    try {
+      await invoke("move_file", { source: newDownload.path, destination: destPath });
+      console.log("Move successful!");
+      setNewDownload(null);
+      loadDownloadFiles();
+    } catch (err) {
+      console.error("Failed to move file:", err);
+      alert("Failed to move file: " + err);
+    }
   }
-}
+
+  // Delete single file
   async function handleDeleteFile(file: FileEntry | NewFileEvent) {
-  const confirmed = window.confirm(`Send "${file.name}" to Recycle Bin?`);
-  if (!confirmed) return;
+    const confirmed = window.confirm(`Send "${file.name}" to Recycle Bin?`);
+    if (!confirmed) return;
+    
+    try {
+      await invoke("delete_file", { path: file.path });
+      console.log("File deleted!");
+      setSelectedFile(null);
+      setNewDownload(null);
+      loadDownloadFiles();
+    } catch (err) {
+      console.error("Failed to delete file:", err);
+      alert("Failed to delete file: " + err);
+    }
+  }
+
+  // Multi-select click handler
+  function handleFileClick(file: FileEntry, index: number, event: React.MouseEvent) {
+    // Ctrl/Cmd + Click: Toggle individual selection
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedFiles((prev) => {
+        const exists = prev.find((f) => f.path === file.path);
+        if (exists) {
+          return prev.filter((f) => f.path !== file.path);
+        } else {
+          return [...prev, file];
+        }
+      });
+      setLastSelectedIndex(index);
+    }
+    // Shift + Click: Range selection
+    else if (event.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+      const range = downloadFiles.slice(start, end + 1);
+      setSelectedFiles(range);
+    }
+    // Regular click: Single selection
+    else {
+      setSelectedFiles([file]);
+      setLastSelectedIndex(index);
+    }
+  }
+
+  // Keyboard handler
+  // Keyboard handler
+function handleKeyDown(event: React.KeyboardEvent) {
+  if (downloadFiles.length === 0) return;
   
-  try {
-    await invoke("delete_file", { path: file.path });
-    console.log("File deleted!");
-    setSelectedFile(null);
-    setNewDownload(null);
-    loadDownloadFiles();
-  } catch (err) {
-    console.error("Failed to delete file:", err);
-    alert("Failed to delete file: " + err);
+  // Ctrl/Cmd + A: Select all
+  if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+    event.preventDefault();
+    setSelectedFiles([...downloadFiles]);
+    return;
+  }
+  
+  // Get current focus position (last item in selection or lastSelectedIndex)
+  const currentFocus = selectedFiles.length > 0
+    ? downloadFiles.findIndex(f => f.path === selectedFiles[selectedFiles.length - 1].path)
+    : lastSelectedIndex ?? -1;
+  
+  // Arrow Down
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    const nextIndex = Math.min(currentFocus + 1, downloadFiles.length - 1);
+    
+    if (event.shiftKey) {
+      // Extend selection from anchor
+      const anchor = lastSelectedIndex ?? 0;
+      const start = Math.min(anchor, nextIndex);
+      const end = Math.max(anchor, nextIndex);
+      setSelectedFiles(downloadFiles.slice(start, end + 1));
+    } else {
+      // Move to next, reset anchor
+      setSelectedFiles([downloadFiles[nextIndex]]);
+      setLastSelectedIndex(nextIndex);
+    }
+  }
+  
+  // Arrow Up
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    const prevIndex = Math.max(currentFocus - 1, 0);
+    
+    if (event.shiftKey) {
+      // Extend selection from anchor
+      const anchor = lastSelectedIndex ?? 0;
+      const start = Math.min(anchor, prevIndex);
+      const end = Math.max(anchor, prevIndex);
+      setSelectedFiles(downloadFiles.slice(start, end + 1));
+    } else {
+      // Move to prev, reset anchor
+      setSelectedFiles([downloadFiles[prevIndex]]);
+      setLastSelectedIndex(prevIndex);
+    }
+  }
+  
+  // Delete key
+  if (event.key === "Delete" && selectedFiles.length > 0) {
+    event.preventDefault();
+    handleBulkDelete();
+  }
+  
+  // Enter key: Open move modal
+  if (event.key === "Enter" && selectedFiles.length > 0) {
+    event.preventDefault();
+    if (selectedFiles.length === 1) {
+      setSelectedFile(selectedFiles[0]);
+    } else {
+      setShowBulkMoveModal(true);
+    }
+  }
+  
+  // Escape: Clear selection
+  if (event.key === "Escape") {
+    setSelectedFiles([]);
+    setLastSelectedIndex(null);
   }
 }
+  // Bulk delete
+  async function handleBulkDelete() {
+    if (selectedFiles.length === 0) return;
+    
+    const confirmed = window.confirm(
+      `Send ${selectedFiles.length} file(s) to Recycle Bin?`
+    );
+    if (!confirmed) return;
+    
+    let successCount = 0;
+    for (const file of selectedFiles) {
+      try {
+        await invoke("delete_file", { path: file.path });
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to delete ${file.name}:`, err);
+      }
+    }
+    
+    console.log(`Deleted ${successCount}/${selectedFiles.length} files`);
+    setSelectedFiles([]);
+    setLastSelectedIndex(null);
+    loadDownloadFiles();
+  }
+
+  // Bulk move
+  async function handleBulkMove(destination: string) {
+    if (selectedFiles.length === 0) return;
+    
+    const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
+    let successCount = 0;
+    
+    for (const file of selectedFiles) {
+      const destPath = `${destFolder}${file.name}`;
+      try {
+        await invoke("move_file", { source: file.path, destination: destPath });
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to move ${file.name}:`, err);
+      }
+    }
+    
+    console.log(`Moved ${successCount}/${selectedFiles.length} files`);
+    setSelectedFiles([]);
+    setLastSelectedIndex(null);
+    setShowBulkMoveModal(false);
+    loadDownloadFiles();
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
@@ -596,7 +955,11 @@ function App() {
           )}
           {showDownloads && (
             <button
-              onClick={() => setShowDownloads(false)}
+              onClick={() => {
+                setShowDownloads(false);
+                setSelectedFiles([]);
+                setLastSelectedIndex(null);
+              }}
               className="p-2 hover:bg-gray-700 rounded-lg transition-all"
             >
               <ArrowLeft className="w-5 h-5 text-gray-300" />
@@ -663,37 +1026,80 @@ function App() {
           <div className="text-red-400">Error: {error}</div>
         ) : showDownloads ? (
           // Downloads view
-          <>
-            <h2 className="text-lg font-semibold text-gray-300 mb-4">
-              Files in Downloads
-            </h2>
+          <div
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+            className="outline-none h-full"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-300">
+                Files in Downloads
+              </h2>
+              <div className="flex items-center gap-4 text-sm text-gray-400">
+                <span>Click to select • Ctrl+Click multi • Shift+Click range</span>
+              </div>
+            </div>
+            
+            {/* Bulk action bar */}
+            {selectedFiles.length > 1 && (
+              <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-lg flex items-center justify-between">
+                <span className="text-blue-200">
+                  {selectedFiles.length} file(s) selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowBulkMoveModal(true)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm flex items-center gap-2"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Move
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-white text-sm flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedFiles([]);
+                      setLastSelectedIndex(null);
+                    }}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            
             {downloadFiles.length === 0 ? (
               <div className="text-gray-400">Downloads folder is clean! 🎉</div>
             ) : (
               <div className="grid gap-1">
-                {downloadFiles.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800 cursor-pointer group"
-                    onClick={() => setSelectedFile(file)}
-                  >
-                    {getFileIcon(file.name)}
-                    <span className="flex-1 text-white truncate">{file.name}</span>
-                    <span className="text-sm text-gray-500">{formatBytes(file.size)}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedFile(file);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white transition-all"
+                {downloadFiles.map((file, index) => {
+                  const isSelected = selectedFiles.some((f) => f.path === file.path);
+                  return (
+                    <div
+                      key={index}
+                      onClick={(e) => handleFileClick(file, index, e)}
+                      onDoubleClick={() => setSelectedFile(file)}
+                      className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all select-none ${
+                        isSelected
+                          ? "bg-blue-600/40 border border-blue-500"
+                          : "hover:bg-gray-800 border border-transparent"
+                      }`}
                     >
-                      Move
-                    </button>
-                  </div>
-                ))}
+                      {getFileIcon(file.name)}
+                      <span className="flex-1 text-white truncate">{file.name}</span>
+                      <span className="text-sm text-gray-500">{formatBytes(file.size)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
-          </>
+          </div>
         ) : currentPath === null ? (
           // Drive list view
           <>
@@ -739,25 +1145,34 @@ function App() {
           : `${entries.length} item(s)`}
       </footer>
 
-      {/* Move file modal */}
-{selectedFile && (
-  <MoveFileModal
-    file={selectedFile}
-    onClose={() => setSelectedFile(null)}
-    onMove={handleMoveFile}
-    onDelete={() => handleDeleteFile(selectedFile)}
-  />
-)}
+      {/* Single file move modal (double-click) */}
+      {selectedFile && (
+        <MoveFileModal
+          file={selectedFile}
+          onClose={() => setSelectedFile(null)}
+          onMove={handleMoveFile}
+          onDelete={() => handleDeleteFile(selectedFile)}
+        />
+      )}
 
-{/* New download notification modal */}
-{newDownload && (
-  <MoveFileModal
-    file={newDownload}
-    onClose={() => setNewDownload(null)}
-    onMove={handleMoveNewDownload}
-    onDelete={() => handleDeleteFile(newDownload)}
-  />
-)}
+      {/* New download notification modal */}
+      {newDownload && (
+        <MoveFileModal
+          file={newDownload}
+          onClose={() => setNewDownload(null)}
+          onMove={handleMoveNewDownload}
+          onDelete={() => handleDeleteFile(newDownload)}
+        />
+      )}
+
+      {/* Bulk move modal */}
+      {showBulkMoveModal && selectedFiles.length > 0 && (
+        <BulkMoveModal
+          files={selectedFiles}
+          onClose={() => setShowBulkMoveModal(false)}
+          onMove={handleBulkMove}
+        />
+      )}
     </div>
   );
 }
