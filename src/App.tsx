@@ -1,6 +1,12 @@
 import { JSX, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HardDrive, Database, Usb, Folder, File, ArrowLeft, RefreshCw, FileText, FileImage, FileVideo, FileAudio, FileCode, FileArchive, FileSpreadsheet, Presentation, FileJson } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  HardDrive, Database, Usb, Folder, File, ArrowLeft, RefreshCw,
+  FileText, FileImage, FileVideo, FileAudio, FileCode, FileArchive,
+  FileSpreadsheet, Presentation, FileJson, Download, X, FolderOpen,
+  AlertCircle, Check, Trash2
+} from "lucide-react";
 import "./App.css";
 
 interface DriveInfo {
@@ -21,6 +27,12 @@ interface FileEntry {
   size: number;
 }
 
+interface NewFileEvent {
+  name: string;
+  path: string;
+  size: number;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -30,43 +42,30 @@ function formatBytes(bytes: number): string {
 
 function getFileIcon(filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
-  
+
   const iconMap: Record<string, JSX.Element> = {
-    // Images
     png: <FileImage className="w-5 h-5 text-green-400" />,
     jpg: <FileImage className="w-5 h-5 text-green-400" />,
     jpeg: <FileImage className="w-5 h-5 text-green-400" />,
     gif: <FileImage className="w-5 h-5 text-green-400" />,
     webp: <FileImage className="w-5 h-5 text-green-400" />,
     svg: <FileImage className="w-5 h-5 text-green-400" />,
-    
-    // Videos
     mp4: <FileVideo className="w-5 h-5 text-purple-400" />,
     mkv: <FileVideo className="w-5 h-5 text-purple-400" />,
     avi: <FileVideo className="w-5 h-5 text-purple-400" />,
     mov: <FileVideo className="w-5 h-5 text-purple-400" />,
-    
-    // Audio
     mp3: <FileAudio className="w-5 h-5 text-pink-400" />,
     wav: <FileAudio className="w-5 h-5 text-pink-400" />,
     flac: <FileAudio className="w-5 h-5 text-pink-400" />,
-    
-    // Documents
     pdf: <FileText className="w-5 h-5 text-red-400" />,
     doc: <FileText className="w-5 h-5 text-blue-400" />,
     docx: <FileText className="w-5 h-5 text-blue-400" />,
     txt: <FileText className="w-5 h-5 text-gray-300" />,
-    
-    // Spreadsheets
     xls: <FileSpreadsheet className="w-5 h-5 text-green-500" />,
     xlsx: <FileSpreadsheet className="w-5 h-5 text-green-500" />,
     csv: <FileSpreadsheet className="w-5 h-5 text-green-500" />,
-    
-    // Presentations
     ppt: <Presentation className="w-5 h-5 text-orange-400" />,
     pptx: <Presentation className="w-5 h-5 text-orange-400" />,
-    
-    // Code
     js: <FileCode className="w-5 h-5 text-yellow-400" />,
     ts: <FileCode className="w-5 h-5 text-blue-400" />,
     jsx: <FileCode className="w-5 h-5 text-cyan-400" />,
@@ -76,26 +75,57 @@ function getFileIcon(filename: string) {
     java: <FileCode className="w-5 h-5 text-red-400" />,
     html: <FileCode className="w-5 h-5 text-orange-400" />,
     css: <FileCode className="w-5 h-5 text-blue-400" />,
-    
-    // Data
     json: <FileJson className="w-5 h-5 text-yellow-400" />,
     xml: <FileCode className="w-5 h-5 text-orange-300" />,
-    
-    // Archives
     zip: <FileArchive className="w-5 h-5 text-yellow-500" />,
     rar: <FileArchive className="w-5 h-5 text-yellow-500" />,
     "7z": <FileArchive className="w-5 h-5 text-yellow-500" />,
     tar: <FileArchive className="w-5 h-5 text-yellow-500" />,
     gz: <FileArchive className="w-5 h-5 text-yellow-500" />,
+    exe: <File className="w-5 h-5 text-blue-300" />,
+    msi: <File className="w-5 h-5 text-blue-300" />,
   };
-  
+
   return iconMap[ext] || <File className="w-5 h-5 text-gray-400" />;
+}
+
+function Breadcrumbs({
+  path,
+  onNavigate,
+}: {
+  path: string;
+  onNavigate: (path: string) => void;
+}) {
+  const parts = path.replace(/\\+$/, "").split("\\").filter(Boolean);
+
+  return (
+    <div className="mt-2 flex items-center gap-1 text-sm">
+      {parts.map((part, index) => {
+        const pathToHere = parts.slice(0, index + 1).join("\\") + "\\";
+        const isLast = index === parts.length - 1;
+
+        return (
+          <div key={index} className="flex items-center gap-1">
+            {index > 0 && <span className="text-gray-600">›</span>}
+            <button
+              onClick={() => onNavigate(pathToHere)}
+              className={`hover:text-blue-400 transition-colors px-1 py-0.5 rounded ${
+                isLast ? "text-gray-200 font-medium" : "text-gray-400"
+              }`}
+            >
+              {part}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function DriveCard({ drive, onClick }: { drive: DriveInfo; onClick: () => void }) {
   const getIcon = () => {
     if (drive.is_removable) return <Usb className="w-8 h-8" />;
-    if (drive.mount_point === "/") return <Database className="w-8 h-8" />;
+    if (drive.mount_point === "C:\\") return <Database className="w-8 h-8" />;
     return <HardDrive className="w-8 h-8" />;
   };
 
@@ -119,14 +149,12 @@ function DriveCard({ drive, onClick }: { drive: DriveInfo; onClick: () => void }
             </span>
             <span className="text-sm text-gray-400">{drive.file_system}</span>
           </div>
-
           <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-2">
             <div
               className={`h-full ${getBarColor()} transition-all`}
               style={{ width: `${drive.usage_percent}%` }}
             />
           </div>
-
           <div className="flex justify-between text-sm text-gray-400">
             <span>{formatBytes(drive.available_space)} free</span>
             <span>{formatBytes(drive.total_space)} total</span>
@@ -137,21 +165,42 @@ function DriveCard({ drive, onClick }: { drive: DriveInfo; onClick: () => void }
   );
 }
 
-function FileEntryRow({ entry, onClick }: { entry: FileEntry; onClick: () => void }) {
+function FileEntryRow({
+  entry,
+  onClick,
+  selected,
+  onSelect,
+}: {
+  entry: FileEntry;
+  onClick: () => void;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   return (
     <div
       onClick={onClick}
       className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
+        selected ? "bg-blue-900 border border-blue-500" : ""
+      } ${
         entry.is_dir
           ? "hover:bg-gray-700 cursor-pointer"
-          : "hover:bg-gray-800 cursor-default"
+          : "hover:bg-gray-800 cursor-pointer"
       }`}
     >
+      {onSelect && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onSelect}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 accent-blue-500"
+        />
+      )}
       {entry.is_dir ? (
-  <Folder className="w-5 h-5 text-yellow-400" />
-) : (
-  getFileIcon(entry.name)
-)}
+        <Folder className="w-5 h-5 text-yellow-400" />
+      ) : (
+        getFileIcon(entry.name)
+      )}
       <span className="flex-1 text-white truncate">{entry.name}</span>
       <span className="text-sm text-gray-500">
         {entry.is_dir ? "Folder" : formatBytes(entry.size)}
@@ -159,37 +208,215 @@ function FileEntryRow({ entry, onClick }: { entry: FileEntry; onClick: () => voi
     </div>
   );
 }
-function Breadcrumbs({ 
-  path, 
-  onNavigate 
-}: { 
-  path: string; 
-  onNavigate: (path: string) => void;
+
+// Move File Modal Component
+function MoveFileModal({
+  file,
+  onClose,
+  onMove,
+  onDelete,
+}: {
+  file: FileEntry | NewFileEvent;
+  onClose: () => void;
+  onMove: (destination: string) => void;
+  onDelete?: () => void;
 }) {
-  // Split path into parts: "C:\Users\Asus" → ["C:", "Users", "Asus"]
-  const parts = path.replace(/\\+$/, "").split("\\").filter(Boolean);
-  
+  const [drives, setDrives] = useState<DriveInfo[]>([]);
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadDrives();
+  }, []);
+
+  async function loadDrives() {
+    const result = await invoke<DriveInfo[]>("get_drives");
+    setDrives(result);
+  }
+
+  async function navigateTo(path: string) {
+    setLoading(true);
+    try {
+      const result = await invoke<FileEntry[]>("list_directory", { path });
+      const folders = result
+        .filter((e) => e.is_dir)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setEntries(folders);
+      setCurrentPath(path);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  }
+
+  async function createFolder() {
+    if (!newFolderName || !currentPath) return;
+    const folderPath = `${currentPath}${newFolderName}`;
+    try {
+      await invoke("create_folder", { path: folderPath });
+      setNewFolderName("");
+      setShowNewFolder(false);
+      navigateTo(currentPath);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  const destinationPath = currentPath || "";
+
   return (
-    <div className="mt-2 flex items-center gap-1 text-sm">
-      {parts.map((part, index) => {
-        // Build path up to this point: C:\Users\Asus
-        const pathToHere = parts.slice(0, index + 1).join("\\") + "\\";
-        const isLast = index === parts.length - 1;
-        
-        return (
-          <div key={index} className="flex items-center gap-1">
-            {index > 0 && <span className="text-gray-600">›</span>}
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-xl w-[500px] max-h-[600px] flex flex-col border border-gray-700 shadow-2xl">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-6 h-6 text-blue-400" />
+            <div>
+              <h2 className="text-lg font-semibold text-white">Move File</h2>
+              <p className="text-sm text-gray-400 truncate max-w-[350px]">
+                {file.name} ({formatBytes(file.size)})
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <div className="p-4 border-b border-gray-700">
+          <p className="text-sm text-gray-400 mb-2">Select destination:</p>
+          {currentPath && (
+            <div className="flex items-center gap-2 mb-2">
+              <button
+                onClick={() => {
+                  setCurrentPath(null);
+                  setEntries([]);
+                }}
+                className="text-sm text-blue-400 hover:underline"
+              >
+                ← Back to drives
+              </button>
+            </div>
+          )}
+          <div className="bg-gray-900 rounded-lg p-2 text-sm font-mono text-gray-300">
+            {currentPath || "Select a drive..."}
+          </div>
+        </div>
+
+        {/* Folder list */}
+        <div className="flex-1 overflow-auto p-4">
+          {currentPath === null ? (
+            <div className="grid gap-2">
+              {drives.map((drive, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigateTo(drive.mount_point)}
+                  className="flex items-center gap-3 p-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-all"
+                >
+                  <HardDrive className="w-5 h-5 text-blue-400" />
+                  <span className="text-white">
+                    {drive.name || "Local Disk"} ({drive.mount_point.replace("\\", "")})
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : loading ? (
+            <div className="text-gray-400">Loading...</div>
+          ) : (
+            <div className="grid gap-1">
+              {entries.map((entry, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigateTo(entry.path)}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-700 rounded-lg text-left transition-all"
+                >
+                  <Folder className="w-5 h-5 text-yellow-400" />
+                  <span className="text-white truncate">{entry.name}</span>
+                </button>
+              ))}
+              {entries.length === 0 && (
+                <div className="text-gray-500 text-sm">No subfolders</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* New folder */}
+        {currentPath && (
+          <div className="p-4 border-t border-gray-700">
+            {showNewFolder ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="Folder name..."
+                  className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+                <button
+                  onClick={createFolder}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm"
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => setShowNewFolder(false)}
+                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowNewFolder(true)}
+                className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Create new folder
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="p-4 border-t border-gray-700 flex justify-between">
+          <button
+            onClick={() => onDelete?.()}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-white transition-all flex items-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+          <div className="flex gap-3">
             <button
-              onClick={() => onNavigate(pathToHere)}
-              className={`hover:text-blue-400 transition-colors px-1 py-0.5 rounded ${
-                isLast ? "text-gray-200 font-medium" : "text-gray-400"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white transition-all"
+            >
+              Keep in Downloads
+            </button>
+            <button
+              onClick={() => onMove(destinationPath)}
+              disabled={!currentPath}
+              className={`px-4 py-2 rounded-lg text-white transition-all flex items-center gap-2 ${
+                currentPath
+                  ? "bg-blue-600 hover:bg-blue-500"
+                  : "bg-gray-600 cursor-not-allowed"
               }`}
             >
-              {part}
+              <Check className="w-4 h-4" />
+              Move Here
             </button>
           </div>
-        );
-      })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -200,9 +427,29 @@ function App() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Downloads manager state
+  const [downloadsPath, setDownloadsPath] = useState<string>("");
+  const [downloadFiles, setDownloadFiles] = useState<FileEntry[]>([]);
+  const [showDownloads, setShowDownloads] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<FileEntry | NewFileEvent | null>(null);
+  const [newDownload, setNewDownload] = useState<NewFileEvent | null>(null);
 
   useEffect(() => {
     loadDrives();
+    loadDownloadsPath();
+    
+    // Listen for new downloads
+    const unlisten = listen<NewFileEvent>("new-download", (event) => {
+      console.log("New download detected:", event.payload);
+      setNewDownload(event.payload);
+      // Refresh downloads list
+      loadDownloadFiles();
+    });
+    
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   async function loadDrives() {
@@ -217,19 +464,37 @@ function App() {
     }
   }
 
+  async function loadDownloadsPath() {
+    const path = await invoke<string>("get_downloads_path");
+    setDownloadsPath(path);
+    loadDownloadFiles(path);
+  }
+
+  async function loadDownloadFiles(path?: string) {
+    const downloadPath = path || downloadsPath;
+    if (!downloadPath) return;
+    
+    try {
+      const result = await invoke<FileEntry[]>("list_directory", { path: downloadPath });
+      const files = result
+        .filter((e) => !e.is_dir)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setDownloadFiles(files);
+    } catch (err) {
+      console.error("Failed to load downloads:", err);
+    }
+  }
+
   async function navigateTo(path: string) {
     try {
       setLoading(true);
       setError(null);
       const result = await invoke<FileEntry[]>("list_directory", { path });
-      
-      // Sort: folders first, then files, both alphabetically
       result.sort((a, b) => {
         if (a.is_dir && !b.is_dir) return -1;
         if (!a.is_dir && b.is_dir) return 1;
         return a.name.localeCompare(b.name);
       });
-      
       setEntries(result);
       setCurrentPath(path);
     } catch (err) {
@@ -242,16 +507,11 @@ function App() {
 
   function goBack() {
     if (!currentPath) return;
-    
-    // Get parent directory
     const parts = currentPath.replace(/\\+$/, "").split("\\");
-    
     if (parts.length <= 1) {
-      // We're at drive root, go back to drive list
       setCurrentPath(null);
       setEntries([]);
     } else {
-      // Go to parent folder
       parts.pop();
       const parentPath = parts.join("\\") + "\\";
       navigateTo(parentPath);
@@ -262,17 +522,81 @@ function App() {
     if (entry.is_dir) {
       navigateTo(entry.path);
     }
-    // For files, we'll add actions later (Day 5+)
   }
+
+  async function handleMoveFile(destination: string) {
+  if (!selectedFile) return;
+  
+  const fileName = selectedFile.name;
+  const sourcePath = selectedFile.path;
+  
+  // Ensure destination ends with backslash
+  const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
+  const destPath = `${destFolder}${fileName}`;
+  
+  console.log("Moving:", sourcePath, "→", destPath);
+  
+  try {
+    await invoke("move_file", { source: sourcePath, destination: destPath });
+    console.log("Move successful!");
+    setSelectedFile(null);
+    loadDownloadFiles();
+  } catch (err) {
+    console.error("Failed to move file:", err);
+    alert("Failed to move file: " + err);
+  }
+}
+
+  async function handleMoveNewDownload(destination: string) {
+  if (!newDownload) return;
+  
+  const destFolder = destination.endsWith("\\") ? destination : destination + "\\";
+  const destPath = `${destFolder}${newDownload.name}`;
+  
+  console.log("Moving new download:", newDownload.path, "→", destPath);
+  
+  try {
+    await invoke("move_file", { source: newDownload.path, destination: destPath });
+    console.log("Move successful!");
+    setNewDownload(null);
+    loadDownloadFiles();
+  } catch (err) {
+    console.error("Failed to move file:", err);
+    alert("Failed to move file: " + err);
+  }
+}
+  async function handleDeleteFile(file: FileEntry | NewFileEvent) {
+  const confirmed = window.confirm(`Send "${file.name}" to Recycle Bin?`);
+  if (!confirmed) return;
+  
+  try {
+    await invoke("delete_file", { path: file.path });
+    console.log("File deleted!");
+    setSelectedFile(null);
+    setNewDownload(null);
+    loadDownloadFiles();
+  } catch (err) {
+    console.error("Failed to delete file:", err);
+    alert("Failed to delete file: " + err);
+  }
+}
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
       {/* Header */}
       <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
         <div className="flex items-center gap-4">
-          {currentPath && (
+          {currentPath && !showDownloads && (
             <button
               onClick={goBack}
+              className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-300" />
+            </button>
+          )}
+          {showDownloads && (
+            <button
+              onClick={() => setShowDownloads(false)}
               className="p-2 hover:bg-gray-700 rounded-lg transition-all"
             >
               <ArrowLeft className="w-5 h-5 text-gray-300" />
@@ -282,17 +606,52 @@ function App() {
             <HardDrive className="w-6 h-6 text-blue-400" />
             FileForge
           </h1>
+          
+          {/* Downloads button */}
           <button
-            onClick={() => currentPath ? navigateTo(currentPath) : loadDrives()}
-            className="p-2 hover:bg-gray-700 rounded-lg transition-all ml-auto"
+            onClick={() => {
+              setShowDownloads(true);
+              loadDownloadFiles();
+            }}
+            className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+              showDownloads
+                ? "bg-blue-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            }`}
+          >
+            <Download className="w-5 h-5" />
+            Downloads
+            {downloadFiles.length > 0 && (
+              <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                {downloadFiles.length}
+              </span>
+            )}
+          </button>
+          
+          <button
+            onClick={() => {
+              if (showDownloads) {
+                loadDownloadFiles();
+              } else if (currentPath) {
+                navigateTo(currentPath);
+              } else {
+                loadDrives();
+              }
+            }}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-all"
           >
             <RefreshCw className="w-5 h-5 text-gray-300" />
           </button>
         </div>
-        
-        {/* Breadcrumb / Path */}
-        {currentPath && (
+
+        {currentPath && !showDownloads && (
           <Breadcrumbs path={currentPath} onNavigate={navigateTo} />
+        )}
+        
+        {showDownloads && (
+          <div className="mt-2 text-sm text-gray-400">
+            {downloadsPath} • {downloadFiles.length} files to organize
+          </div>
         )}
       </header>
 
@@ -302,6 +661,39 @@ function App() {
           <div className="text-gray-400">Loading...</div>
         ) : error ? (
           <div className="text-red-400">Error: {error}</div>
+        ) : showDownloads ? (
+          // Downloads view
+          <>
+            <h2 className="text-lg font-semibold text-gray-300 mb-4">
+              Files in Downloads
+            </h2>
+            {downloadFiles.length === 0 ? (
+              <div className="text-gray-400">Downloads folder is clean! 🎉</div>
+            ) : (
+              <div className="grid gap-1">
+                {downloadFiles.map((file, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800 cursor-pointer group"
+                    onClick={() => setSelectedFile(file)}
+                  >
+                    {getFileIcon(file.name)}
+                    <span className="flex-1 text-white truncate">{file.name}</span>
+                    <span className="text-sm text-gray-500">{formatBytes(file.size)}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFile(file);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white transition-all"
+                    >
+                      Move
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         ) : currentPath === null ? (
           // Drive list view
           <>
@@ -340,10 +732,32 @@ function App() {
 
       {/* Status bar */}
       <footer className="bg-gray-800 border-t border-gray-700 px-4 py-2 text-sm text-gray-400">
-        {currentPath === null
+        {showDownloads
+          ? `${downloadFiles.length} file(s) in Downloads`
+          : currentPath === null
           ? `${drives.length} drive(s) detected`
           : `${entries.length} item(s)`}
       </footer>
+
+      {/* Move file modal */}
+{selectedFile && (
+  <MoveFileModal
+    file={selectedFile}
+    onClose={() => setSelectedFile(null)}
+    onMove={handleMoveFile}
+    onDelete={() => handleDeleteFile(selectedFile)}
+  />
+)}
+
+{/* New download notification modal */}
+{newDownload && (
+  <MoveFileModal
+    file={newDownload}
+    onClose={() => setNewDownload(null)}
+    onMove={handleMoveNewDownload}
+    onDelete={() => handleDeleteFile(newDownload)}
+  />
+)}
     </div>
   );
 }
