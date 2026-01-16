@@ -2,8 +2,6 @@
 
 A personal file management system built with Tauri, React, and Rust. Designed to organize your Downloads folder and manage files across drives.
 
-![FileForge Screenshot](screenshot.png)
-
 ## Features
 
 - **Drive Overview** — View all drives with storage usage bars (color-coded by capacity)

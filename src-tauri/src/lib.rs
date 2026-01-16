@@ -4,7 +4,9 @@ use std::fs;
 use std::path::Path;
 use notify::{Watcher, RecursiveMode, Event, EventKind};
 use std::sync::mpsc::channel;
-use tauri::{Emitter};
+use tauri::{Emitter, Manager, AppHandle};
+use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::menu::{Menu, MenuItem};
 
 #[derive(Serialize)]
 struct DriveInfo {
@@ -112,14 +114,14 @@ fn move_file(source: String, destination: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn delete_file(path: String) -> Result<(), String> {
-    trash::delete(&path).map_err(|e| e.to_string())?;
+fn create_folder(path: String) -> Result<(), String> {
+    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn create_folder(path: String) -> Result<(), String> {
-    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+fn delete_file(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -130,7 +132,7 @@ fn get_downloads_path() -> String {
         .unwrap_or_else(|| "C:\\Users\\Default\\Downloads".to_string())
 }
 
-fn start_watcher(app_handle: tauri::AppHandle) {
+fn start_watcher(app_handle: AppHandle) {
     std::thread::spawn(move || {
         let (tx, rx) = channel();
         
@@ -146,37 +148,113 @@ fn start_watcher(app_handle: tauri::AppHandle) {
         println!("Watching: {:?}", downloads);
         
         for event in rx {
-            // Only care about new files being created
-            if matches!(event.kind, EventKind::Create(_)) {
-                for path in event.paths {
-                    // Skip temp files and partial downloads
-                    let name = path.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
+            println!("Event detected: {:?}", event.kind);
+            
+            // Watch for Create OR Rename (browsers rename .crdownload to final name)
+            let is_relevant = matches!(
+                event.kind,
+                EventKind::Create(_) | EventKind::Modify(notify::event::ModifyKind::Name(_))
+            );
+            
+            if !is_relevant {
+                continue;
+            }
+            
+            for path in event.paths {
+                let name = path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                
+                println!("File: {}", name);
+                
+                // Skip temp files
+                if name.ends_with(".crdownload") || 
+                   name.ends_with(".tmp") || 
+                   name.ends_with(".partial") ||
+                   name.starts_with(".") ||
+                   name.ends_with(".download") {
+                    println!("Skipping temp file");
+                    continue;
+                }
+                
+                // Make sure file exists and is a file (not directory)
+                if !path.is_file() {
+                    println!("Not a file, skipping");
+                    continue;
+                }
+                
+                // Wait a moment for file to finish writing
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                
+                if let Ok(metadata) = fs::metadata(&path) {
+                    println!("New download detected: {} ({} bytes)", name, metadata.len());
                     
-                    if name.ends_with(".crdownload") || 
-                       name.ends_with(".tmp") || 
-                       name.ends_with(".partial") ||
-                       name.starts_with(".") {
-                        continue;
-                    }
+                    let event = NewFileEvent {
+                        name,
+                        path: path.to_string_lossy().to_string(),
+                        size: metadata.len(),
+                    };
                     
-                    // Wait a moment for file to finish writing
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    
-                    if let Ok(metadata) = fs::metadata(&path) {
-                        let event = NewFileEvent {
-                            name,
-                            path: path.to_string_lossy().to_string(),
-                            size: metadata.len(),
-                        };
+                    // Show window when new download detected
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
                         
-                        let _ = app_handle.emit("new-download", event);
+                        #[cfg(target_os = "windows")]
+                        {
+                            let _ = window.set_always_on_top(true);
+                            let _ = window.set_always_on_top(false);
+                        }
+                        println!("Window shown!");
                     }
+                    
+                    let _ = app_handle.emit("new-download", event);
                 }
             }
         }
     });
+}
+
+
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let show = MenuItem::with_id(app, "show", "Show FileForge", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    
+    let _tray = TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .tooltip("FileForge - File Manager")
+        .on_menu_event(|app, event| {
+            match event.id.as_ref() {
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button, button_state, .. } = event {
+                if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                    let app = tray.app_handle();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+    
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -192,8 +270,16 @@ pub fn run() {
             delete_file
         ])
         .setup(|app| {
+            setup_tray(app)?;
             start_watcher(app.handle().clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Minimize to tray instead of closing
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                window.hide().unwrap();
+                api.prevent_close();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

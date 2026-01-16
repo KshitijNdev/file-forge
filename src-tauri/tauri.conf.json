@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "file-forge",
+  "productName": "FileForge",
   "version": "0.1.0",
-  "identifier": "com.asus.file-forge",
+  "identifier": "com.kshitij.fileforge",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "file-forge",
-        "width": 800,
-        "height": 600
+        "title": "FileForge",
+        "width": 900,
+        "height": 650,
+        "center": true,
+        "visible": true
       }
     ],
     "security": {
