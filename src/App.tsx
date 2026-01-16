@@ -238,8 +238,9 @@ function MoveFileModal({
   }
 
   async function createFolder() {
-    if (!newFolderName || !currentPath) return;
-    const folderPath = `${currentPath}${newFolderName}`;
+  if (!newFolderName || !currentPath) return;
+  const pathSep = currentPath.endsWith("\\") ? "" : "\\";
+  const folderPath = `${currentPath}${pathSep}${newFolderName}`;
     try {
       await invoke("create_folder", { path: folderPath });
       setNewFolderName("");
@@ -448,8 +449,9 @@ function BulkMoveModal({
   }
 
   async function createFolder() {
-    if (!newFolderName || !currentPath) return;
-    const folderPath = `${currentPath}${newFolderName}`;
+  if (!newFolderName || !currentPath) return;
+  const pathSep = currentPath.endsWith("\\") ? "" : "\\";
+  const folderPath = `${currentPath}${pathSep}${newFolderName}`;
     try {
       await invoke("create_folder", { path: folderPath });
       setNewFolderName("");
