@@ -27,3 +27,6 @@ sysinfo = "0.33"
 notify = "7"
 dirs = "5"
 trash = "5"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

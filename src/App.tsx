@@ -5,7 +5,7 @@ import {
   HardDrive, Database, Usb, Folder, File, ArrowLeft, RefreshCw,
   FileText, FileImage, FileVideo, FileAudio, FileCode, FileArchive,
   FileSpreadsheet, Presentation, FileJson, Download, X, FolderOpen,
-  AlertCircle, Check, Trash2
+  AlertCircle, Check, Trash2, Settings
 } from "lucide-react";
 import "./App.css";
 
@@ -626,6 +626,33 @@ function App() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+
+// Load autostart setting on mount
+useEffect(() => {
+  loadAutoStartSetting();
+}, []);
+
+async function loadAutoStartSetting() {
+  try {
+    const enabled = await invoke<boolean>("get_autostart_enabled");
+    setAutoStartEnabled(enabled);
+  } catch (err) {
+    console.error("Failed to get autostart setting:", err);
+  }
+}
+
+async function toggleAutoStart() {
+  try {
+    const newValue = !autoStartEnabled;
+    await invoke("set_autostart_enabled", { enabled: newValue });
+    setAutoStartEnabled(newValue);
+  } catch (err) {
+    console.error("Failed to set autostart:", err);
+    alert("Failed to update auto-start setting: " + err);
+  }
+}
   
   // Downloads manager state
   const [downloadsPath, setDownloadsPath] = useState<string>("");
@@ -992,7 +1019,12 @@ function handleKeyDown(event: React.KeyboardEvent) {
               </span>
             )}
           </button>
-          
+          <button
+  onClick={() => setShowSettings(true)}
+  className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+>
+  <Settings className="w-5 h-5 text-gray-300" />
+</button>
           <button
             onClick={() => {
               if (showDownloads) {
@@ -1018,6 +1050,7 @@ function handleKeyDown(event: React.KeyboardEvent) {
             {downloadsPath} • {downloadFiles.length} files to organize
           </div>
         )}
+        
       </header>
 
       {/* Main content */}
@@ -1166,7 +1199,52 @@ function handleKeyDown(event: React.KeyboardEvent) {
           onDelete={() => handleDeleteFile(newDownload)}
         />
       )}
-
+      {/* Settings modal */}
+{showSettings && (
+  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="bg-gray-800 rounded-xl w-[400px] border border-gray-700 shadow-2xl">
+      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Settings className="w-5 h-5 text-blue-400" />
+          Settings
+        </h2>
+        <button
+          onClick={() => setShowSettings(false)}
+          className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+        >
+          <X className="w-5 h-5 text-gray-400" />
+        </button>
+      </div>
+      
+      <div className="p-4">
+        <div className="flex items-center justify-between p-3 bg-gray-900 rounded-lg">
+          <div>
+            <div className="text-white font-medium">Start at Login</div>
+            <div className="text-sm text-gray-400">
+              Launch FileForge minimized when Windows starts
+            </div>
+          </div>
+          <button
+            onClick={toggleAutoStart}
+            className={`w-12 h-6 rounded-full transition-all ${
+              autoStartEnabled ? "bg-blue-600" : "bg-gray-600"
+            }`}
+          >
+            <div
+              className={`w-5 h-5 bg-white rounded-full transition-all transform ${
+                autoStartEnabled ? "translate-x-6" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+        
+        <div className="mt-4 text-sm text-gray-500">
+          When enabled, FileForge runs in the background and watches your Downloads folder for new files.
+        </div>
+      </div>
+    </div>
+  </div>
+)}
       {/* Bulk move modal */}
       {showBulkMoveModal && selectedFiles.length > 0 && (
         <BulkMoveModal

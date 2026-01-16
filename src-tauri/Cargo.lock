@@ -966,6 +966,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-shell",
  "trash",
+ "winreg",
 ]
 
 [[package]]

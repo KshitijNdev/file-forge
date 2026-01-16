@@ -7,6 +7,10 @@ use std::sync::mpsc::channel;
 use tauri::{Emitter, Manager, AppHandle};
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{Menu, MenuItem};
+#[cfg(target_os = "windows")]
+use winreg::enums::*;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
 
 #[derive(Serialize)]
 struct DriveInfo {
@@ -130,6 +134,55 @@ fn get_downloads_path() -> String {
     dirs::download_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "C:\\Users\\Default\\Downloads".to_string())
+}
+
+#[tauri::command]
+fn get_autostart_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(run_key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            return run_key.get_value::<String, _>("FileForge").is_ok();
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_key = hkcu
+            .open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", KEY_WRITE)
+            .map_err(|e| e.to_string())?;
+        
+        if enabled {
+            // Get current executable path
+            let exe_path = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .to_string();
+            
+            // Add --hidden flag so it starts minimized
+            let launch_cmd = format!("\"{}\" --hidden", exe_path);
+            run_key
+                .set_value("FileForge", &launch_cmd)
+                .map_err(|e| e.to_string())?;
+        } else {
+            // Ignore error if key doesn't exist
+            let _ = run_key.delete_value("FileForge");
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Auto-start not supported on this platform".to_string())
+    }
 }
 
 fn start_watcher(app_handle: AppHandle) {
@@ -259,6 +312,9 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Check if started with --hidden flag
+    let start_hidden = std::env::args().any(|arg| arg == "--hidden");
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -267,15 +323,24 @@ pub fn run() {
             move_file, 
             create_folder,
             get_downloads_path,
-            delete_file
+            delete_file,
+            get_autostart_enabled,
+            set_autostart_enabled
         ])
-        .setup(|app| {
+        .setup(move |app| {
             setup_tray(app)?;
             start_watcher(app.handle().clone());
+            
+            // Hide window if started with --hidden flag
+            if start_hidden {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+            
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Minimize to tray instead of closing
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 window.hide().unwrap();
                 api.prevent_close();
