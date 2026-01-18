@@ -325,7 +325,9 @@ pub fn run() {
             get_downloads_path,
             delete_file,
             get_autostart_enabled,
-            set_autostart_enabled
+            set_autostart_enabled,
+            get_recent_destinations,
+            add_recent_destination,
         ])
         .setup(move |app| {
             setup_tray(app)?;
@@ -348,4 +350,62 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+use std::io::{Read, Write};
+
+#[derive(Serialize, serde::Deserialize, Clone)]
+struct AppData {
+    recent_destinations: Vec<String>,
+}
+
+fn get_app_data_path() -> std::path::PathBuf {
+    let mut path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    path.push("FileForge");
+    fs::create_dir_all(&path).ok();
+    path.push("data.json");
+    path
+}
+
+fn load_app_data() -> AppData {
+    let path = get_app_data_path();
+    if let Ok(mut file) = fs::File::open(&path) {
+        let mut contents = String::new();
+        if file.read_to_string(&mut contents).is_ok() {
+            if let Ok(data) = serde_json::from_str(&contents) {
+                return data;
+            }
+        }
+    }
+    AppData {
+        recent_destinations: Vec::new(),
+    }
+}
+
+fn save_app_data(data: &AppData) {
+    let path = get_app_data_path();
+    if let Ok(mut file) = fs::File::create(&path) {
+        let json = serde_json::to_string_pretty(data).unwrap_or_default();
+        let _ = file.write_all(json.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn get_recent_destinations() -> Vec<String> {
+    load_app_data().recent_destinations
+}
+
+#[tauri::command]
+fn add_recent_destination(path: String) {
+    let mut data = load_app_data();
+    
+    // Remove if already exists (we'll add it to front)
+    data.recent_destinations.retain(|p| p != &path);
+    
+    // Add to front
+    data.recent_destinations.insert(0, path);
+    
+    // Keep only last 5
+    data.recent_destinations.truncate(5);
+    
+    save_app_data(&data);
 }

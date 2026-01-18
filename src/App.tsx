@@ -212,14 +212,25 @@ function MoveFileModal({
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recentDestinations, setRecentDestinations] = useState<string[]>([]);
 
   useEffect(() => {
     loadDrives();
+    loadRecentDestinations();
   }, []);
 
   async function loadDrives() {
     const result = await invoke<DriveInfo[]>("get_drives");
     setDrives(result);
+  }
+
+  async function loadRecentDestinations() {
+    try {
+      const recent = await invoke<string[]>("get_recent_destinations");
+      setRecentDestinations(recent);
+    } catch (err) {
+      console.error("Failed to load recent destinations:", err);
+    }
   }
 
   async function navigateTo(path: string) {
@@ -238,9 +249,9 @@ function MoveFileModal({
   }
 
   async function createFolder() {
-  if (!newFolderName || !currentPath) return;
-  const pathSep = currentPath.endsWith("\\") ? "" : "\\";
-  const folderPath = `${currentPath}${pathSep}${newFolderName}`;
+    if (!newFolderName || !currentPath) return;
+    const pathSep = currentPath.endsWith("\\") ? "" : "\\";
+    const folderPath = `${currentPath}${pathSep}${newFolderName}`;
     try {
       await invoke("create_folder", { path: folderPath });
       setNewFolderName("");
@@ -249,6 +260,13 @@ function MoveFileModal({
     } catch (err) {
       console.error(err);
     }
+  }
+
+  function getDisplayPath(path: string) {
+    // Show last 2 parts of path for readability
+    const parts = path.replace(/\\+$/, "").split("\\");
+    if (parts.length <= 2) return path;
+    return "...\\" + parts.slice(-2).join("\\");
   }
 
   const destinationPath = currentPath || "";
@@ -275,9 +293,35 @@ function MoveFileModal({
           </button>
         </div>
 
+        {/* Recent Destinations */}
+        {recentDestinations.length > 0 && currentPath === null && (
+          <div className="p-4 border-b border-gray-700">
+            <p className="text-sm text-gray-400 mb-2">Recent:</p>
+            <div className="grid gap-1">
+              {recentDestinations.map((dest, i) => (
+                <button
+                  key={i}
+                  onClick={() => onMove(dest)}
+                  className="flex items-center gap-2 p-2 bg-gray-700 hover:bg-blue-600 rounded-lg text-left transition-all group"
+                >
+                  <Folder className="w-4 h-4 text-yellow-400" />
+                  <span className="text-white text-sm truncate flex-1">
+                    {getDisplayPath(dest)}
+                  </span>
+                  <span className="text-xs text-gray-400 group-hover:text-white">
+                    Quick move
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <div className="p-4 border-b border-gray-700">
-          <p className="text-sm text-gray-400 mb-2">Select destination:</p>
+          <p className="text-sm text-gray-400 mb-2">
+            {recentDestinations.length > 0 && currentPath === null ? "Or browse:" : "Select destination:"}
+          </p>
           {currentPath && (
             <div className="flex items-center gap-2 mb-2">
               <button
@@ -423,14 +467,25 @@ function BulkMoveModal({
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recentDestinations, setRecentDestinations] = useState<string[]>([]);
 
   useEffect(() => {
     loadDrives();
+    loadRecentDestinations();
   }, []);
 
   async function loadDrives() {
     const result = await invoke<DriveInfo[]>("get_drives");
     setDrives(result);
+  }
+
+  async function loadRecentDestinations() {
+    try {
+      const recent = await invoke<string[]>("get_recent_destinations");
+      setRecentDestinations(recent);
+    } catch (err) {
+      console.error("Failed to load recent destinations:", err);
+    }
   }
 
   async function navigateTo(path: string) {
@@ -449,9 +504,9 @@ function BulkMoveModal({
   }
 
   async function createFolder() {
-  if (!newFolderName || !currentPath) return;
-  const pathSep = currentPath.endsWith("\\") ? "" : "\\";
-  const folderPath = `${currentPath}${pathSep}${newFolderName}`;
+    if (!newFolderName || !currentPath) return;
+    const pathSep = currentPath.endsWith("\\") ? "" : "\\";
+    const folderPath = `${currentPath}${pathSep}${newFolderName}`;
     try {
       await invoke("create_folder", { path: folderPath });
       setNewFolderName("");
@@ -460,6 +515,12 @@ function BulkMoveModal({
     } catch (err) {
       console.error(err);
     }
+  }
+
+  function getDisplayPath(path: string) {
+    const parts = path.replace(/\\+$/, "").split("\\");
+    if (parts.length <= 2) return path;
+    return "...\\" + parts.slice(-2).join("\\");
   }
 
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
@@ -498,9 +559,35 @@ function BulkMoveModal({
           </div>
         </div>
 
+        {/* Recent Destinations */}
+        {recentDestinations.length > 0 && currentPath === null && (
+          <div className="p-4 border-b border-gray-700">
+            <p className="text-sm text-gray-400 mb-2">Recent:</p>
+            <div className="grid gap-1">
+              {recentDestinations.map((dest, i) => (
+                <button
+                  key={i}
+                  onClick={() => onMove(dest)}
+                  className="flex items-center gap-2 p-2 bg-gray-700 hover:bg-blue-600 rounded-lg text-left transition-all group"
+                >
+                  <Folder className="w-4 h-4 text-yellow-400" />
+                  <span className="text-white text-sm truncate flex-1">
+                    {getDisplayPath(dest)}
+                  </span>
+                  <span className="text-xs text-gray-400 group-hover:text-white">
+                    Quick move
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <div className="p-4 border-b border-gray-700">
-          <p className="text-sm text-gray-400 mb-2">Select destination:</p>
+          <p className="text-sm text-gray-400 mb-2">
+            {recentDestinations.length > 0 && currentPath === null ? "Or browse:" : "Select destination:"}
+          </p>
           {currentPath && (
             <button
               onClick={() => {
@@ -771,6 +858,7 @@ async function toggleAutoStart() {
     
     try {
       await invoke("move_file", { source: sourcePath, destination: destPath });
+      await invoke("add_recent_destination", { path: destFolder });
       console.log("Move successful!");
       setSelectedFile(null);
       loadDownloadFiles();
@@ -791,6 +879,7 @@ async function toggleAutoStart() {
     
     try {
       await invoke("move_file", { source: newDownload.path, destination: destPath });
+      await invoke("add_recent_destination", { path: destFolder });
       console.log("Move successful!");
       setNewDownload(null);
       loadDownloadFiles();
@@ -961,7 +1050,10 @@ function handleKeyDown(event: React.KeyboardEvent) {
         console.error(`Failed to move ${file.name}:`, err);
       }
     }
-    
+    // Save to recent only if at least one succeeded
+  if (successCount > 0) {
+    await invoke("add_recent_destination", { path: destFolder });
+  }
     console.log(`Moved ${successCount}/${selectedFiles.length} files`);
     setSelectedFiles([]);
     setLastSelectedIndex(null);
