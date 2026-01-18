@@ -5,7 +5,7 @@ import {
   HardDrive, Database, Usb, Folder, File, ArrowLeft, RefreshCw,
   FileText, FileImage, FileVideo, FileAudio, FileCode, FileArchive,
   FileSpreadsheet, Presentation, FileJson, Download, X, FolderOpen,
-  AlertCircle, Check, Trash2, Settings, History
+  AlertCircle, Check, Trash2, Settings, History, Info
 } from "lucide-react";
 import "./App.css";
 
@@ -727,6 +727,7 @@ function App() {
   const fileListRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryEntry[]>([]);
+  const [showHelp, setShowHelp] = useState(false);
 
 // Load autostart setting on mount
 useEffect(() => {
@@ -1240,13 +1241,18 @@ function handleKeyDown(event: React.KeyboardEvent) {
             className="outline-none h-full"
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-300">
-                Files in Downloads
-              </h2>
-              <div className="flex items-center gap-4 text-sm text-gray-400">
-                <span>Click to select • Ctrl+Click multi • Shift+Click range</span>
-              </div>
-            </div>
+  <h2 className="text-lg font-semibold text-gray-300">
+    Files in Downloads
+  </h2>
+  <button
+    onClick={() => setShowHelp(true)}
+    className="flex items-center gap-2 text-sm text-gray-400 hover:text-blue-400 transition-all"
+    title="Keyboard shortcuts & help"
+  >
+    <span>Shortcuts</span>
+    <Info className="w-4 h-4" />
+  </button>
+</div>
             
             {/* Bulk action bar - sticky at bottom */}
 {selectedFiles.length > 1 && (
@@ -1486,6 +1492,112 @@ function handleKeyDown(event: React.KeyboardEvent) {
         
         <div className="mt-4 text-sm text-gray-500">
           When enabled, FileForge runs in the background and watches your Downloads folder for new files.
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+{/* Help modal */}
+{showHelp && (
+  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="bg-gray-800 rounded-xl w-[500px] max-h-[600px] flex flex-col border border-gray-700 shadow-2xl">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Info className="w-5 h-5 text-blue-400" />
+          Keyboard Shortcuts & Actions
+        </h2>
+        <button
+          onClick={() => setShowHelp(false)}
+          className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+        >
+          <X className="w-5 h-5 text-gray-400" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-4">
+        <p className="text-gray-400 text-sm mb-4">
+          Use these shortcuts in the Downloads view to quickly manage your files.
+        </p>
+
+        <div className="space-y-4">
+          {/* Selection */}
+          <div>
+            <h3 className="text-blue-400 font-medium mb-2">Selection</h3>
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Select file</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Click</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Toggle selection</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Ctrl + Click</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Select range</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Shift + Click</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Select all</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Ctrl + A</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Clear selection</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Esc</kbd>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div>
+            <h3 className="text-blue-400 font-medium mb-2">Navigation</h3>
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Move up/down</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">↑ / ↓</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Extend selection</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Shift + ↑/↓</kbd>
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div>
+            <h3 className="text-blue-400 font-medium mb-2">Actions</h3>
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Open move dialog</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Enter</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Open single file dialog</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Double-click</kbd>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-900 rounded">
+                <span className="text-gray-300">Delete selected</span>
+                <kbd className="px-2 py-0.5 bg-gray-700 rounded text-gray-400">Delete</kbd>
+              </div>
+            </div>
+          </div>
+
+          {/* Tips */}
+          <div>
+            <h3 className="text-blue-400 font-medium mb-2">Tips</h3>
+            <div className="grid gap-2 text-sm text-gray-400">
+              <div className="p-2 bg-gray-900 rounded">
+                • Recent destinations appear at the top of the move dialog for quick access
+              </div>
+              <div className="p-2 bg-gray-900 rounded">
+                • The app minimizes to system tray when closed — click the tray icon to reopen
+              </div>
+              <div className="p-2 bg-gray-900 rounded">
+                • New downloads automatically trigger a popup for organization
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
