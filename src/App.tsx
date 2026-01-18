@@ -1,4 +1,4 @@
-import { JSX, useEffect, useState } from "react";
+import { JSX, useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -715,6 +715,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+  const fileListRef = useRef<HTMLDivElement>(null);
 
 // Load autostart setting on mount
 useEffect(() => {
@@ -967,6 +968,9 @@ function handleKeyDown(event: React.KeyboardEvent) {
       setSelectedFiles([downloadFiles[nextIndex]]);
       setLastSelectedIndex(nextIndex);
     }
+    // Auto-scroll to selected item
+    const element = fileListRef.current?.children[nextIndex] as HTMLElement;
+    element?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   
   // Arrow Up
@@ -985,6 +989,9 @@ function handleKeyDown(event: React.KeyboardEvent) {
       setSelectedFiles([downloadFiles[prevIndex]]);
       setLastSelectedIndex(prevIndex);
     }
+    // Auto-scroll to selected item
+    const element = fileListRef.current?.children[prevIndex] as HTMLElement;
+    element?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   
   // Delete key
@@ -1167,44 +1174,44 @@ function handleKeyDown(event: React.KeyboardEvent) {
               </div>
             </div>
             
-            {/* Bulk action bar */}
-            {selectedFiles.length > 1 && (
-              <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-lg flex items-center justify-between">
-                <span className="text-blue-200">
-                  {selectedFiles.length} file(s) selected
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowBulkMoveModal(true)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm flex items-center gap-2"
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                    Move
-                  </button>
-                  <button
-                    onClick={handleBulkDelete}
-                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-white text-sm flex items-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedFiles([]);
-                      setLastSelectedIndex(null);
-                    }}
-                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Bulk action bar - sticky at bottom */}
+{selectedFiles.length > 1 && (
+  <div className="fixed bottom-16 left-6 right-6 p-3 bg-blue-900/95 backdrop-blur border border-blue-700 rounded-lg flex items-center justify-between shadow-lg z-40">
+    <span className="text-blue-200">
+      {selectedFiles.length} file(s) selected
+    </span>
+    <div className="flex gap-2">
+      <button
+        onClick={() => setShowBulkMoveModal(true)}
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm flex items-center gap-2"
+      >
+        <FolderOpen className="w-4 h-4" />
+        Move
+      </button>
+      <button
+        onClick={handleBulkDelete}
+        className="px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-white text-sm flex items-center gap-2"
+      >
+        <Trash2 className="w-4 h-4" />
+        Delete
+      </button>
+      <button
+        onClick={() => {
+          setSelectedFiles([]);
+          setLastSelectedIndex(null);
+        }}
+        className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+)}
             
             {downloadFiles.length === 0 ? (
               <div className="text-gray-400">Downloads folder is clean! 🎉</div>
             ) : (
-              <div className="grid gap-1">
+              <div className="grid gap-1" ref={fileListRef}>
                 {downloadFiles.map((file, index) => {
                   const isSelected = selectedFiles.some((f) => f.path === file.path);
                   return (
