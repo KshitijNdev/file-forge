@@ -5,7 +5,7 @@ import {
   HardDrive, Database, Usb, Folder, File, ArrowLeft, RefreshCw,
   FileText, FileImage, FileVideo, FileAudio, FileCode, FileArchive,
   FileSpreadsheet, Presentation, FileJson, Download, X, FolderOpen,
-  AlertCircle, Check, Trash2, Settings
+  AlertCircle, Check, Trash2, Settings, History
 } from "lucide-react";
 import "./App.css";
 
@@ -31,6 +31,15 @@ interface NewFileEvent {
   name: string;
   path: string;
   size: number;
+}
+
+interface DownloadHistoryEntry {
+  name: string;
+  original_path: string;
+  size: number;
+  timestamp: string;
+  action: string;
+  destination: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -716,6 +725,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const fileListRef = useRef<HTMLDivElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryEntry[]>([]);
 
 // Load autostart setting on mount
 useEffect(() => {
@@ -739,6 +750,26 @@ async function toggleAutoStart() {
   } catch (err) {
     console.error("Failed to set autostart:", err);
     alert("Failed to update auto-start setting: " + err);
+  }
+}
+async function loadDownloadHistory() {
+  try {
+    const history = await invoke<DownloadHistoryEntry[]>("get_download_history");
+    setDownloadHistory(history);
+  } catch (err) {
+    console.error("Failed to load history:", err);
+  }
+}
+
+async function clearDownloadHistory() {
+  const confirmed = window.confirm("Clear all download history?");
+  if (!confirmed) return;
+  
+  try {
+    await invoke("clear_history");
+    setDownloadHistory([]);
+  } catch (err) {
+    console.error("Failed to clear history:", err);
   }
 }
   
@@ -860,7 +891,13 @@ async function toggleAutoStart() {
     try {
       await invoke("move_file", { source: sourcePath, destination: destPath });
       await invoke("add_recent_destination", { path: destFolder });
-      console.log("Move successful!");
+      await invoke("add_to_history", {
+      name: fileName,
+      originalPath: sourcePath,
+      size: selectedFile.size,
+      action: "moved",
+      destination: destFolder,
+    });
       setSelectedFile(null);
       loadDownloadFiles();
     } catch (err) {
@@ -881,7 +918,13 @@ async function toggleAutoStart() {
     try {
       await invoke("move_file", { source: newDownload.path, destination: destPath });
       await invoke("add_recent_destination", { path: destFolder });
-      console.log("Move successful!");
+      await invoke("add_to_history", {
+      name: newDownload.name,
+      originalPath: newDownload.path,
+      size: newDownload.size,
+      action: "moved",
+      destination: destFolder,
+    });
       setNewDownload(null);
       loadDownloadFiles();
     } catch (err) {
@@ -897,7 +940,13 @@ async function toggleAutoStart() {
     
     try {
       await invoke("delete_file", { path: file.path });
-      console.log("File deleted!");
+      await invoke("add_to_history", {
+      name: file.name,
+      originalPath: file.path,
+      size: file.size,
+      action: "deleted",
+      destination: null,
+    });
       setSelectedFile(null);
       setNewDownload(null);
       loadDownloadFiles();
@@ -1029,13 +1078,19 @@ function handleKeyDown(event: React.KeyboardEvent) {
     for (const file of selectedFiles) {
       try {
         await invoke("delete_file", { path: file.path });
+        await invoke("add_to_history", {
+        name: file.name,
+        originalPath: file.path,
+        size: file.size,
+        action: "deleted",
+        destination: null,
+      });
         successCount++;
       } catch (err) {
         console.error(`Failed to delete ${file.name}:`, err);
       }
     }
     
-    console.log(`Deleted ${successCount}/${selectedFiles.length} files`);
     setSelectedFiles([]);
     setLastSelectedIndex(null);
     loadDownloadFiles();
@@ -1052,6 +1107,13 @@ function handleKeyDown(event: React.KeyboardEvent) {
       const destPath = `${destFolder}${file.name}`;
       try {
         await invoke("move_file", { source: file.path, destination: destPath });
+        await invoke("add_to_history", {
+        name: file.name,
+        originalPath: file.path,
+        size: file.size,
+        action: "moved",
+        destination: destFolder,
+      });
         successCount++;
       } catch (err) {
         console.error(`Failed to move ${file.name}:`, err);
@@ -1109,7 +1171,7 @@ function handleKeyDown(event: React.KeyboardEvent) {
                 ? "bg-blue-600 text-white"
                 : "bg-gray-700 text-gray-300 hover:bg-gray-600"
             }`}
-          >
+          >      
             <Download className="w-5 h-5" />
             Downloads
             {downloadFiles.length > 0 && (
@@ -1122,7 +1184,18 @@ function handleKeyDown(event: React.KeyboardEvent) {
   onClick={() => setShowSettings(true)}
   className="p-2 hover:bg-gray-700 rounded-lg transition-all"
 >
-  <Settings className="w-5 h-5 text-gray-300" />
+   <Settings className="w-5 h-5 text-gray-300" />
+</button>
+{/* History button */}
+<button
+  onClick={() => {
+    setShowHistory(true);
+    loadDownloadHistory();
+  }}
+  className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+  title="Download History"
+>
+  <History className="w-5 h-5 text-gray-300" />
 </button>
           <button
             onClick={() => {
@@ -1136,6 +1209,7 @@ function handleKeyDown(event: React.KeyboardEvent) {
             }}
             className="p-2 hover:bg-gray-700 rounded-lg transition-all"
           >
+            
             <RefreshCw className="w-5 h-5 text-gray-300" />
           </button>
         </div>
@@ -1298,6 +1372,79 @@ function handleKeyDown(event: React.KeyboardEvent) {
           onDelete={() => handleDeleteFile(newDownload)}
         />
       )}
+      {/* History modal */}
+{showHistory && (
+  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="bg-gray-800 rounded-xl w-[600px] max-h-[500px] flex flex-col border border-gray-700 shadow-2xl">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <History className="w-5 h-5 text-blue-400" />
+          Download History
+        </h2>
+        <div className="flex items-center gap-2">
+          {downloadHistory.length > 0 && (
+            <button
+              onClick={clearDownloadHistory}
+              className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/30 rounded-lg transition-all"
+            >
+              Clear All
+            </button>
+          )}
+          <button
+            onClick={() => setShowHistory(false)}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-all"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+      </div>
+
+      {/* History list */}
+      <div className="flex-1 overflow-auto p-4">
+        {downloadHistory.length === 0 ? (
+          <div className="text-gray-400 text-center py-8">
+            No download history yet
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {downloadHistory.map((entry, i) => (
+              <div
+                key={i}
+                className="p-3 bg-gray-900 rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  {getFileIcon(entry.name)}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white truncate">{entry.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {entry.timestamp} • {formatBytes(entry.size)}
+                    </div>
+                  </div>
+                  <div className={`text-xs px-2 py-1 rounded ${
+                    entry.action === "moved" 
+                      ? "bg-blue-900/50 text-blue-300" 
+                      : entry.action === "deleted"
+                      ? "bg-red-900/50 text-red-300"
+                      : "bg-gray-700 text-gray-300"
+                  }`}>
+                    {entry.action === "moved" ? "Moved" : entry.action === "deleted" ? "Deleted" : "Kept"}
+                  </div>
+                </div>
+                {entry.destination && (
+                  <div className="mt-2 text-xs text-gray-400 truncate">
+                    → {entry.destination}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
       {/* Settings modal */}
 {showSettings && (
   <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">

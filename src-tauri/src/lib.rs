@@ -137,6 +137,40 @@ fn get_downloads_path() -> String {
 }
 
 #[tauri::command]
+fn get_download_history() -> Vec<DownloadHistoryEntry> {
+    load_app_data().download_history
+}
+
+#[tauri::command]
+fn add_to_history(name: String, original_path: String, size: u64, action: String, destination: Option<String>) {
+    let mut data = load_app_data();
+    
+    let entry = DownloadHistoryEntry {
+        name,
+        original_path,
+        size,
+        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        action,
+        destination,
+    };
+    
+    // Add to front
+    data.download_history.insert(0, entry);
+    
+    // Keep only last 50
+    data.download_history.truncate(50);
+    
+    save_app_data(&data);
+}
+
+#[tauri::command]
+fn clear_history() {
+    let mut data = load_app_data();
+    data.download_history.clear();
+    save_app_data(&data);
+}
+
+#[tauri::command]
 fn get_autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -328,6 +362,9 @@ pub fn run() {
             set_autostart_enabled,
             get_recent_destinations,
             add_recent_destination,
+            get_download_history,
+            add_to_history,
+            clear_history
         ])
         .setup(move |app| {
             setup_tray(app)?;
@@ -354,8 +391,19 @@ pub fn run() {
 use std::io::{Read, Write};
 
 #[derive(Serialize, serde::Deserialize, Clone)]
+struct DownloadHistoryEntry {
+    name: String,
+    original_path: String,
+    size: u64,
+    timestamp: String,
+    action: String,  // "moved", "deleted", "kept"
+    destination: Option<String>,
+}
+
+#[derive(Serialize, serde::Deserialize, Clone)]
 struct AppData {
     recent_destinations: Vec<String>,
+    download_history: Vec<DownloadHistoryEntry>,
 }
 
 fn get_app_data_path() -> std::path::PathBuf {
@@ -378,6 +426,7 @@ fn load_app_data() -> AppData {
     }
     AppData {
         recent_destinations: Vec::new(),
+        download_history: Vec::new(),
     }
 }
 
