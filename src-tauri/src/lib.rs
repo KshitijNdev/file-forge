@@ -12,6 +12,41 @@ use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
+// Basic input validation - only blocks obviously malicious input
+fn basic_path_check(path: &str) -> Result<(), String> {
+    // Block NULL bytes (never legitimate in paths)
+    if path.contains('\0') {
+        return Err("Invalid path: contains null bytes".to_string());
+    }
+
+    // Block absurdly long paths (>32KB - way beyond any reasonable path)
+    if path.len() > 32000 {
+        return Err("Invalid path: excessively long".to_string());
+    }
+
+    Ok(())
+}
+
+// Basic folder name validation
+fn basic_folder_name_check(name: &str) -> Result<(), String> {
+    // Block empty names
+    if name.trim().is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+
+    // Block NULL bytes
+    if name.contains('\0') {
+        return Err("Invalid folder name: contains null bytes".to_string());
+    }
+
+    // Block obvious path separators in folder names
+    if name.contains('\\') || name.contains('/') {
+        return Err("Folder name cannot contain path separators".to_string());
+    }
+
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct DriveInfo {
     name: String,
@@ -71,12 +106,15 @@ fn get_drives() -> Vec<DriveInfo> {
 
 #[tauri::command]
 fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+    // Basic validation - only blocks obvious attacks
+    basic_path_check(&path)?;
+
     let dir_path = Path::new(&path);
-    
+
     if !dir_path.exists() {
         return Err("Path does not exist".to_string());
     }
-    
+
     let entries = fs::read_dir(dir_path)
         .map_err(|e| e.to_string())?
         .filter_map(|entry| {
@@ -98,8 +136,12 @@ fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 fn move_file(source: String, destination: String) -> Result<(), String> {
+    // Basic validation - only blocks obvious attacks
+    basic_path_check(&source)?;
+    basic_path_check(&destination)?;
+
     let dest_path = Path::new(&destination);
-    
+
     // Create destination directory if it doesn't exist
     if let Some(parent) = dest_path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -119,12 +161,24 @@ fn move_file(source: String, destination: String) -> Result<(), String> {
 
 #[tauri::command]
 fn create_folder(path: String) -> Result<(), String> {
+    // Basic validation - only blocks obvious attacks
+    basic_path_check(&path)?;
+
+    // Extract folder name and validate it
+    let path_obj = Path::new(&path);
+    if let Some(folder_name) = path_obj.file_name() {
+        basic_folder_name_check(&folder_name.to_string_lossy())?;
+    }
+
     fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn delete_file(path: String) -> Result<(), String> {
+    // Basic validation - only blocks obvious attacks
+    basic_path_check(&path)?;
+
     trash::delete(&path).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -222,15 +276,31 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
 fn start_watcher(app_handle: AppHandle) {
     std::thread::spawn(move || {
         let (tx, rx) = channel();
-        
-        let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
+
+        let mut watcher = match notify::recommended_watcher(move |res: Result<Event, _>| {
             if let Ok(event) = res {
                 let _ = tx.send(event);
             }
-        }).expect("Failed to create watcher");
-        
-        let downloads = dirs::download_dir().expect("Could not find Downloads folder");
-        watcher.watch(&downloads, RecursiveMode::NonRecursive).expect("Failed to watch");
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("Failed to create file watcher: {}", e);
+                return;
+            }
+        };
+
+        let downloads = match dirs::download_dir() {
+            Some(path) => path,
+            None => {
+                eprintln!("Could not find Downloads folder");
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&downloads, RecursiveMode::NonRecursive) {
+            eprintln!("Failed to watch Downloads folder: {}", e);
+            return;
+        }
         
         println!("Watching: {:?}", downloads);
         
@@ -307,11 +377,15 @@ fn start_watcher(app_handle: AppHandle) {
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Show FileForge", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    
+
     let menu = Menu::with_items(app, &[&show, &quit])?;
-    
+
+    let icon = app.default_window_icon()
+        .ok_or("No default window icon found")?
+        .clone();
+
     let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
         .menu(&menu)
         .tooltip("FileForge - File Manager")
         .on_menu_event(|app, event| {
@@ -381,12 +455,14 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
+                let _ = window.hide();
                 api.prevent_close();
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("Error running Tauri application: {}", e);
+        });
 }
 use std::io::{Read, Write};
 
