@@ -1,6 +1,18 @@
 # FileForge
 
+![GitHub release](https://img.shields.io/github/v/release/KshitijNdev/file-forge)
+
 A personal file management system built with Tauri, React, and Rust. Designed to organize your Downloads folder and manage files across drives.
+
+## 📥 Download
+
+**Latest Release: [v0.1.0](https://github.com/KshitijNdev/file-forge/releases/latest)**
+
+### Windows Installers:
+- **[FileForge Setup (NSIS)](https://github.com/KshitijNdev/file-forge/releases/download/v0.1.0/FileForge_0.1.0_x64-setup.exe)** - Recommended
+- **[FileForge MSI](https://github.com/KshitijNdev/file-forge/releases/download/v0.1.0/FileForge_0.1.0_x64_en-US.msi)** - Alternative
+
+**Requirements:** Windows 10/11 (64-bit)
 
 ## Features
 
@@ -85,9 +97,9 @@ file-forge/
 
 ## Roadmap
 
+- [x] Recent destinations / favorites
+- [x] System tray + auto-start
 - [ ] Auto-organize rules (e.g., .pdf → Documents)
-- [ ] Recent destinations / favorites
-- [ ] System tray + auto-start
 - [ ] File preview pane
 - [ ] Search functionality
 
